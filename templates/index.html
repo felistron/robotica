@@ -324,6 +324,18 @@
               <input type="number" id="planoAlto" min="1" step="0.1">
             </div>
             <div class="field">
+              <label for="origenX">Origen X (cm)</label>
+              <input type="number" id="origenX" step="0.1">
+            </div>
+            <div class="field">
+              <label for="origenY">Origen Y (cm)</label>
+              <input type="number" id="origenY" step="0.1">
+            </div>
+            <div class="field" style="align-self: end;">
+              <label for="invertirEjeY">Invertir eje Y</label>
+              <input type="checkbox" id="invertirEjeY" style="width: 20px; height: 20px;">
+            </div>
+            <div class="field">
               <label for="idTopLeft">ID top_left</label>
               <input type="number" id="idTopLeft" min="0" max="49" step="1">
             </div>
@@ -374,6 +386,9 @@
     const fpsLabel = document.getElementById('fpsLabel');
     const planoAnchoInput = document.getElementById('planoAncho');
     const planoAltoInput = document.getElementById('planoAlto');
+    const origenXInput = document.getElementById('origenX');
+    const origenYInput = document.getElementById('origenY');
+    const invertirEjeYInput = document.getElementById('invertirEjeY');
     const idTopLeftInput = document.getElementById('idTopLeft');
     const idTopRightInput = document.getElementById('idTopRight');
     const idBottomRightInput = document.getElementById('idBottomRight');
@@ -447,6 +462,9 @@
 
       planoAnchoInput.value = config.plano_cm?.ancho ?? '';
       planoAltoInput.value = config.plano_cm?.alto ?? '';
+      origenXInput.value = config.origen_cm?.x ?? 0;
+      origenYInput.value = config.origen_cm?.y ?? 0;
+      invertirEjeYInput.checked = Boolean(config.invertir_eje_y);
       idTopLeftInput.value = config.ids_por_esquina?.top_left ?? '';
       idTopRightInput.value = config.ids_por_esquina?.top_right ?? '';
       idBottomRightInput.value = config.ids_por_esquina?.bottom_right ?? '';
@@ -469,6 +487,11 @@
           ancho: Number(planoAnchoInput.value),
           alto: Number(planoAltoInput.value),
         },
+        origen_cm: {
+          x: Number(origenXInput.value),
+          y: Number(origenYInput.value),
+        },
+        invertir_eje_y: invertirEjeYInput.checked,
         ids_por_esquina: {
           top_left: Number(idTopLeftInput.value),
           top_right: Number(idTopRightInput.value),
@@ -660,6 +683,8 @@
         setEstado('Configuración recargada', '#22c55e');
         actualizarMeta([
           `Plano: ${config.plano_cm.ancho} x ${config.plano_cm.alto} cm`,
+          `Origen: (${config.origen_cm.x}, ${config.origen_cm.y}) cm`,
+          `Invertir eje Y: ${config.invertir_eje_y ? 'sí' : 'no'}`,
           `IDs: TL ${config.ids_por_esquina.top_left}, TR ${config.ids_por_esquina.top_right}, BR ${config.ids_por_esquina.bottom_right}, BL ${config.ids_por_esquina.bottom_left}`,
           'Config aplicada desde backend',
         ]);
@@ -674,6 +699,8 @@
         setEstado('Configuración aplicada', '#22c55e');
         actualizarMeta([
           `Plano: ${config.plano_cm.ancho} x ${config.plano_cm.alto} cm`,
+          `Origen: (${config.origen_cm.x}, ${config.origen_cm.y}) cm`,
+          `Invertir eje Y: ${config.invertir_eje_y ? 'sí' : 'no'}`,
           `IDs: TL ${config.ids_por_esquina.top_left}, TR ${config.ids_por_esquina.top_right}, BR ${config.ids_por_esquina.bottom_right}, BL ${config.ids_por_esquina.bottom_left}`,
           'La calibración usará esta configuración en tiempo real',
         ]);

@@ -3,6 +3,11 @@
     "ancho": 16.0,
     "alto": 22.0
   },
+  "origen_cm": {
+    "x": 8.0,
+    "y": 22.0
+  },
+  "invertir_eje_y": true,
   "ids_por_esquina": {
     "top_left": 0,
     "top_right": 1,

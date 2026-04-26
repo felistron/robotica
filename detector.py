@@ -21,6 +21,9 @@ COLORES_HSV = {
 # Configuración del plano físico y marcadores ArUco para calibración.
 PLANO_ANCHO_CM = 40.0
 PLANO_ALTO_CM = 30.0
+ORIGEN_X_CM = 0.0
+ORIGEN_Y_CM = 0.0
+INVERTIR_EJE_Y = False
 MARCADORES_PLANO = {
     0: "top_left",
     1: "top_right",
@@ -51,6 +54,11 @@ def _configuracion_actual():
             "ancho": float(PLANO_ANCHO_CM),
             "alto": float(PLANO_ALTO_CM),
         },
+        "origen_cm": {
+            "x": float(ORIGEN_X_CM),
+            "y": float(ORIGEN_Y_CM),
+        },
+        "invertir_eje_y": bool(INVERTIR_EJE_Y),
         "ids_por_esquina": {esquina: marker_id for marker_id, esquina in MARCADORES_PLANO.items()},
         "diccionario_aruco": "DICT_4X4_50",
     }
@@ -81,10 +89,12 @@ def obtener_configuracion_calibracion():
 
 
 def actualizar_configuracion_calibracion(configuracion, persistir=True):
-    global PLANO_ANCHO_CM, PLANO_ALTO_CM, MARCADORES_PLANO
+    global PLANO_ANCHO_CM, PLANO_ALTO_CM, ORIGEN_X_CM, ORIGEN_Y_CM, INVERTIR_EJE_Y, MARCADORES_PLANO
     global LAST_HOMOGRAPHY, LAST_CALIBRATION, LAST_CALIBRATION_TS
 
     plano_cm = (configuracion or {}).get("plano_cm") or {}
+    origen_cm = (configuracion or {}).get("origen_cm") or {}
+    invertir_eje_y_raw = (configuracion or {}).get("invertir_eje_y", False)
     ids_por_esquina = (configuracion or {}).get("ids_por_esquina") or {}
 
     try:
@@ -95,6 +105,22 @@ def actualizar_configuracion_calibracion(configuracion, persistir=True):
 
     if ancho <= 0 or alto <= 0:
         raise ValueError("El tamaño del plano debe ser mayor a 0")
+
+    try:
+        origen_x = float(origen_cm.get("x", 0.0))
+        origen_y = float(origen_cm.get("y", 0.0))
+    except (TypeError, ValueError):
+        raise ValueError("El origen debe ser numérico")
+
+    if origen_x < 0.0 or origen_x > ancho or origen_y < 0.0 or origen_y > alto:
+        raise ValueError("El origen debe estar dentro del plano configurado")
+
+    if isinstance(invertir_eje_y_raw, bool):
+        invertir_eje_y = invertir_eje_y_raw
+    elif isinstance(invertir_eje_y_raw, (int, float)) and invertir_eje_y_raw in (0, 1):
+        invertir_eje_y = bool(invertir_eje_y_raw)
+    else:
+        raise ValueError("invertir_eje_y debe ser true o false")
 
     esquinas_validas = ["top_left", "top_right", "bottom_right", "bottom_left"]
     if sorted(ids_por_esquina.keys()) != sorted(esquinas_validas):
@@ -117,6 +143,9 @@ def actualizar_configuracion_calibracion(configuracion, persistir=True):
     with CONFIG_LOCK:
         PLANO_ANCHO_CM = ancho
         PLANO_ALTO_CM = alto
+        ORIGEN_X_CM = origen_x
+        ORIGEN_Y_CM = origen_y
+        INVERTIR_EJE_Y = invertir_eje_y
         MARCADORES_PLANO = nuevo_mapeo
 
     LAST_HOMOGRAPHY = None
@@ -172,6 +201,9 @@ def _detectar_calibracion_aruco(frame, resultado):
     with CONFIG_LOCK:
         plano_ancho_cm = float(PLANO_ANCHO_CM)
         plano_alto_cm = float(PLANO_ALTO_CM)
+        origen_x_cm = float(ORIGEN_X_CM)
+        origen_y_cm = float(ORIGEN_Y_CM)
+        invertir_eje_y = bool(INVERTIR_EJE_Y)
         marcadores_plano = dict(MARCADORES_PLANO)
 
     ids_por_esquina = {esquina: marker_id for marker_id, esquina in marcadores_plano.items()}
@@ -186,6 +218,11 @@ def _detectar_calibracion_aruco(frame, resultado):
             "ancho": plano_ancho_cm,
             "alto": plano_alto_cm,
         },
+        "origen_cm": {
+            "x": origen_x_cm,
+            "y": origen_y_cm,
+        },
+        "invertir_eje_y": invertir_eje_y,
         "motivo": "No se detectó un área válida delimitada por marcadores ArUco",
     }
 
@@ -288,6 +325,88 @@ def _pixel_a_cm(homografia, x_px, y_px):
     return float(punto_cm[0]), float(punto_cm[1])
 
 
+def _cm_a_pixel(homografia_inversa, x_cm, y_cm):
+    punto_cm = np.array([[[float(x_cm), float(y_cm)]]], dtype=np.float32)
+    punto_px = cv2.perspectiveTransform(punto_cm, homografia_inversa)[0][0]
+    return int(round(float(punto_px[0]))), int(round(float(punto_px[1])))
+
+
+def _dibujar_origen_y_ejes(
+    resultado,
+    homografia,
+    plano_ancho_cm,
+    plano_alto_cm,
+    origen_x_cm,
+    origen_y_cm,
+    invertir_eje_y,
+):
+    try:
+        homografia_inversa = np.linalg.inv(homografia)
+    except np.linalg.LinAlgError:
+        return
+
+    origen_px = _cm_a_pixel(homografia_inversa, origen_x_cm, origen_y_cm)
+
+    margen = 0.5
+    largo_base_x = min(6.0, plano_ancho_cm * 0.25)
+    largo_base_y = min(6.0, plano_alto_cm * 0.25)
+    largo_x = min(largo_base_x, max(margen, plano_ancho_cm - origen_x_cm))
+
+    if invertir_eje_y:
+        largo_y = min(largo_base_y, max(margen, origen_y_cm))
+        y_objetivo_cm = origen_y_cm - largo_y
+    else:
+        largo_y = min(largo_base_y, max(margen, plano_alto_cm - origen_y_cm))
+        y_objetivo_cm = origen_y_cm + largo_y
+
+    x_fin_px = _cm_a_pixel(homografia_inversa, origen_x_cm + largo_x, origen_y_cm)
+    y_fin_px = _cm_a_pixel(homografia_inversa, origen_x_cm, y_objetivo_cm)
+
+    cv2.circle(resultado, origen_px, 6, (0, 220, 255), -1)
+    cv2.circle(resultado, origen_px, 10, (0, 0, 0), 2)
+
+    cv2.arrowedLine(resultado, origen_px, x_fin_px, (0, 255, 255), 3, tipLength=0.18)
+    cv2.arrowedLine(resultado, origen_px, y_fin_px, (255, 255, 0), 3, tipLength=0.18)
+
+    cv2.putText(
+        resultado,
+        "O",
+        (origen_px[0] + 8, origen_px[1] - 8),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.55,
+        (0, 0, 0),
+        3,
+    )
+    cv2.putText(
+        resultado,
+        "O",
+        (origen_px[0] + 8, origen_px[1] - 8),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.55,
+        (255, 255, 255),
+        1,
+    )
+
+    cv2.putText(
+        resultado,
+        "+X",
+        (x_fin_px[0] + 6, x_fin_px[1] - 6),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.5,
+        (0, 255, 255),
+        2,
+    )
+    cv2.putText(
+        resultado,
+        "+Y",
+        (y_fin_px[0] + 6, y_fin_px[1] - 6),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.5,
+        (255, 255, 0),
+        2,
+    )
+
+
 def _asignar_trayectorias(detecciones):
     global TRACK_ID_SEED, TRACKS
 
@@ -366,11 +485,24 @@ def procesar_frame(frame, return_metadata=False):
     calibracion, homografia, mascara_marcadores = _detectar_calibracion_aruco(frame, resultado)
     plano_ancho_cm = float(calibracion["plano_cm"]["ancho"])
     plano_alto_cm = float(calibracion["plano_cm"]["alto"])
+    origen_x_cm = float((calibracion.get("origen_cm") or {}).get("x", 0.0))
+    origen_y_cm = float((calibracion.get("origen_cm") or {}).get("y", 0.0))
+    invertir_eje_y = bool(calibracion.get("invertir_eje_y", False))
 
     if not calibracion["activa"] or homografia is None:
         if return_metadata:
             return resultado, [], calibracion
         return resultado
+
+    _dibujar_origen_y_ejes(
+        resultado,
+        homografia,
+        plano_ancho_cm,
+        plano_alto_cm,
+        origen_x_cm,
+        origen_y_cm,
+        invertir_eje_y,
+    )
 
     area_trabajo_px = calibracion.get("area_trabajo_px") or []
     area_trabajo = np.array(
@@ -440,9 +572,15 @@ def procesar_frame(frame, return_metadata=False):
         centroide_cm = None
         en_plano = False
         if homografia is not None:
-            x_cm, y_cm = _pixel_a_cm(homografia, cx, cy)
-            en_plano = 0.0 <= x_cm <= plano_ancho_cm and 0.0 <= y_cm <= plano_alto_cm
-            centroide_cm = {"x": round(x_cm, 2), "y": round(y_cm, 2)}
+            x_cm_abs, y_cm_abs = _pixel_a_cm(homografia, cx, cy)
+            en_plano = 0.0 <= x_cm_abs <= plano_ancho_cm and 0.0 <= y_cm_abs <= plano_alto_cm
+            y_relativo = y_cm_abs - origen_y_cm
+            if invertir_eje_y:
+                y_relativo = -y_relativo
+            centroide_cm = {
+                "x": round(x_cm_abs - origen_x_cm, 2),
+                "y": round(y_relativo, 2),
+            }
 
         detecciones.append({
             "figura": figura,
