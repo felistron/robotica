@@ -185,18 +185,12 @@ def _detectar_calibracion_aruco(frame, resultado):
             "ancho": plano_ancho_cm,
             "alto": plano_alto_cm,
         },
-        "motivo": "No se detectaron marcadores",
+        "motivo": "No se detectó un área válida delimitada por marcadores ArUco",
     }
 
     mascara_marcadores = np.zeros(frame.shape[:2], dtype=np.uint8)
 
     if ids is None or len(ids) == 0:
-        if LAST_HOMOGRAPHY is not None and LAST_CALIBRATION is not None:
-            if time.monotonic() - LAST_CALIBRATION_TS <= CALIBRATION_HOLD_SECONDS:
-                calibracion_retenida = dict(LAST_CALIBRATION)
-                calibracion_retenida["motivo"] = "Usando última calibración válida"
-                calibracion_retenida["activa"] = True
-                return calibracion_retenida, LAST_HOMOGRAPHY.copy(), mascara_marcadores
         return calibracion, None, mascara_marcadores
 
     cv2.aruco.drawDetectedMarkers(resultado, corners, ids)
@@ -252,6 +246,11 @@ def _detectar_calibracion_aruco(frame, resultado):
         "bottom_right": {"x": float(puntos_imagen[2][0]), "y": float(puntos_imagen[2][1])},
         "bottom_left": {"x": float(puntos_imagen[3][0]), "y": float(puntos_imagen[3][1])},
     }
+
+    calibracion["area_trabajo_px"] = [
+        {"x": float(punto[0]), "y": float(punto[1])}
+        for punto in puntos_imagen
+    ]
 
     LAST_HOMOGRAPHY = homografia.copy()
     LAST_CALIBRATION = dict(calibracion)
@@ -345,6 +344,20 @@ def procesar_frame(frame, return_metadata=False):
     plano_ancho_cm = float(calibracion["plano_cm"]["ancho"])
     plano_alto_cm = float(calibracion["plano_cm"]["alto"])
 
+    if not calibracion["activa"] or homografia is None:
+        if return_metadata:
+            return resultado, [], calibracion
+        return resultado
+
+    area_trabajo_px = calibracion.get("area_trabajo_px") or []
+    area_trabajo = np.array(
+        [[punto.get("x", 0), punto.get("y", 0)] for punto in area_trabajo_px],
+        dtype=np.int32,
+    )
+    mascara_area_trabajo = np.zeros(gris.shape, dtype=np.uint8)
+    if area_trabajo.shape[0] == 4:
+        cv2.fillConvexPoly(mascara_area_trabajo, area_trabajo, 255)
+
     # Suavizado y detección de bordes
     blur = cv2.GaussianBlur(gris, (5, 5), 0)
     bordes = cv2.Canny(blur, 50, 150)
@@ -362,6 +375,13 @@ def procesar_frame(frame, return_metadata=False):
         area = cv2.contourArea(contorno)
         if area < 1500:  # Ignorar figuras muy pequeñas
             continue
+
+        if area_trabajo.shape[0] == 4:
+            mascara_contorno = np.zeros(gris.shape, dtype=np.uint8)
+            cv2.drawContours(mascara_contorno, [contorno], -1, 255, -1)
+            area_dentro = cv2.countNonZero(cv2.bitwise_and(mascara_contorno, mascara_area_trabajo))
+            if area_dentro / max(area, 1.0) < 0.98:
+                continue
 
         if cv2.countNonZero(mascara_marcadores) > 0:
             mascara_contorno = np.zeros(gris.shape, dtype=np.uint8)
