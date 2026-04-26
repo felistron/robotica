@@ -180,6 +180,7 @@ def _detectar_calibracion_aruco(frame, resultado):
         "activa": False,
         "marcadores_detectados": [],
         "marcadores_requeridos": sorted(marcadores_plano.keys()),
+        "marcadores_retenidos": [],
         "ids_por_esquina": ids_por_esquina,
         "plano_cm": {
             "ancho": plano_ancho_cm,
@@ -209,8 +210,24 @@ def _detectar_calibracion_aruco(frame, resultado):
 
     faltantes = [marker_id for marker_id in marcadores_plano if marker_id not in centros]
     if faltantes:
-        calibracion["motivo"] = f"Faltan marcadores requeridos: {faltantes}"
-        return calibracion, None, mascara_marcadores
+        if LAST_CALIBRATION is not None and (time.monotonic() - LAST_CALIBRATION_TS) <= CALIBRATION_HOLD_SECONDS:
+            esquinas_previas = LAST_CALIBRATION.get("esquinas_px") or {}
+            retenidos = []
+            for marker_id in list(faltantes):
+                esquina = marcadores_plano[marker_id]
+                punto_previo = esquinas_previas.get(esquina)
+                if punto_previo is None:
+                    continue
+
+                centros[marker_id] = (float(punto_previo["x"]), float(punto_previo["y"]))
+                retenidos.append(marker_id)
+
+            calibracion["marcadores_retenidos"] = sorted(retenidos)
+            faltantes = [marker_id for marker_id in marcadores_plano if marker_id not in centros]
+
+        if faltantes:
+            calibracion["motivo"] = f"Faltan marcadores requeridos: {faltantes}"
+            return calibracion, None, mascara_marcadores
 
     marker_tl = ids_por_esquina["top_left"]
     marker_tr = ids_por_esquina["top_right"]
@@ -239,7 +256,13 @@ def _detectar_calibracion_aruco(frame, resultado):
     cv2.polylines(resultado, [poligono], True, (255, 120, 0), 2)
 
     calibracion["activa"] = True
-    calibracion["motivo"] = "Calibración ArUco activa"
+    if calibracion["marcadores_retenidos"]:
+        calibracion["motivo"] = (
+            "Calibración ArUco activa (usando posición retenida de marcadores: "
+            f"{calibracion['marcadores_retenidos']})"
+        )
+    else:
+        calibracion["motivo"] = "Calibración ArUco activa"
     calibracion["esquinas_px"] = {
         "top_left": {"x": float(puntos_imagen[0][0]), "y": float(puntos_imagen[0][1])},
         "top_right": {"x": float(puntos_imagen[1][0]), "y": float(puntos_imagen[1][1])},
