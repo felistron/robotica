@@ -28,6 +28,12 @@ MARCADORES_PLANO = {
 }
 CONFIG_LOCK = threading.Lock()
 CONFIG_FILE = Path(__file__).with_name("calibration_config.json")
+SMOOTHING_ALPHA = 0.35
+TRACK_MATCH_DISTANCE_PX = 80.0
+TRACK_TIMEOUT_FRAMES = 10
+TRACK_LOCK = threading.Lock()
+TRACK_ID_SEED = 0
+TRACKS = {}
 
 ARUCO_DICT = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
 ARUCO_PARAMS = cv2.aruco.DetectorParameters()
@@ -238,6 +244,72 @@ def _pixel_a_cm(homografia, x_px, y_px):
     return float(punto_cm[0]), float(punto_cm[1])
 
 
+def _asignar_trayectorias(detecciones):
+    global TRACK_ID_SEED, TRACKS
+
+    with TRACK_LOCK:
+        # Envejecer tracks y descartar los que ya no se observan.
+        tracks_activos = {}
+        for track_id, track in TRACKS.items():
+            track["edad"] += 1
+            if track["edad"] <= TRACK_TIMEOUT_FRAMES:
+                tracks_activos[track_id] = track
+
+        TRACKS = tracks_activos
+
+        detecciones_ordenadas = sorted(detecciones, key=lambda elemento: elemento["centroide_px"]["x"])
+        asignaciones = []
+
+        for deteccion in detecciones_ordenadas:
+            centroide_px = deteccion["centroide_px"]
+            centroide_cm = deteccion.get("centroide_cm")
+            mejor_track_id = None
+            mejor_distancia = None
+
+            for track_id, track in TRACKS.items():
+                dx = centroide_px["x"] - track["centroide_px"]["x"]
+                dy = centroide_px["y"] - track["centroide_px"]["y"]
+                distancia = (dx * dx + dy * dy) ** 0.5
+                if distancia <= TRACK_MATCH_DISTANCE_PX and (mejor_distancia is None or distancia < mejor_distancia):
+                    mejor_track_id = track_id
+                    mejor_distancia = distancia
+
+            if mejor_track_id is None:
+                TRACK_ID_SEED += 1
+                mejor_track_id = TRACK_ID_SEED
+                TRACKS[mejor_track_id] = {
+                    "centroide_px": dict(centroide_px),
+                    "centroide_cm": dict(centroide_cm) if centroide_cm else None,
+                    "edad": 0,
+                }
+            else:
+                track = TRACKS[mejor_track_id]
+                track["centroide_px"] = dict(centroide_px)
+                track["edad"] = 0
+
+                if centroide_cm is not None:
+                    if track["centroide_cm"] is None:
+                        track["centroide_cm"] = dict(centroide_cm)
+                    else:
+                        track["centroide_cm"]["x"] = round(
+                            (1.0 - SMOOTHING_ALPHA) * track["centroide_cm"]["x"] + SMOOTHING_ALPHA * centroide_cm["x"],
+                            2,
+                        )
+                        track["centroide_cm"]["y"] = round(
+                            (1.0 - SMOOTHING_ALPHA) * track["centroide_cm"]["y"] + SMOOTHING_ALPHA * centroide_cm["y"],
+                            2,
+                        )
+
+            track = TRACKS[mejor_track_id]
+            deteccion["track_id"] = mejor_track_id
+            deteccion["centroide_cm_suavizado"] = dict(track["centroide_cm"]) if track["centroide_cm"] else None
+            if deteccion["centroide_cm_suavizado"] is not None:
+                deteccion["centroide_cm"] = dict(deteccion["centroide_cm_suavizado"])
+            asignaciones.append(deteccion)
+
+        return asignaciones
+
+
 def procesar_frame(frame, return_metadata=False):
     """
     Detecta figuras geométricas y colores en un frame.
@@ -332,6 +404,7 @@ def procesar_frame(frame, return_metadata=False):
                     cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
 
     if return_metadata:
+        detecciones = _asignar_trayectorias(detecciones)
         return resultado, detecciones, calibracion
 
     return resultado
