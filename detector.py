@@ -1,4 +1,6 @@
 import cv2
+import json
+from pathlib import Path
 import numpy as np
 import threading
 
@@ -25,26 +27,49 @@ MARCADORES_PLANO = {
     3: "bottom_left",
 }
 CONFIG_LOCK = threading.Lock()
+CONFIG_FILE = Path(__file__).with_name("calibration_config.json")
 
 ARUCO_DICT = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
 ARUCO_PARAMS = cv2.aruco.DetectorParameters()
 ARUCO_DETECTOR = cv2.aruco.ArucoDetector(ARUCO_DICT, ARUCO_PARAMS)
 
 
+def _configuracion_actual():
+    return {
+        "plano_cm": {
+            "ancho": float(PLANO_ANCHO_CM),
+            "alto": float(PLANO_ALTO_CM),
+        },
+        "ids_por_esquina": {esquina: marker_id for marker_id, esquina in MARCADORES_PLANO.items()},
+        "diccionario_aruco": "DICT_4X4_50",
+    }
+
+
+def guardar_configuracion_calibracion():
+    with CONFIG_LOCK:
+        configuracion = _configuracion_actual()
+
+    CONFIG_FILE.write_text(json.dumps(configuracion, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def cargar_configuracion_calibracion():
+    if not CONFIG_FILE.exists():
+        return obtener_configuracion_calibracion()
+
+    try:
+        configuracion = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return obtener_configuracion_calibracion()
+
+    return actualizar_configuracion_calibracion(configuracion, persistir=False)
+
+
 def obtener_configuracion_calibracion():
     with CONFIG_LOCK:
-        ids_por_esquina = {esquina: marker_id for marker_id, esquina in MARCADORES_PLANO.items()}
-        return {
-            "plano_cm": {
-                "ancho": float(PLANO_ANCHO_CM),
-                "alto": float(PLANO_ALTO_CM),
-            },
-            "ids_por_esquina": ids_por_esquina,
-            "diccionario_aruco": "DICT_4X4_50",
-        }
+        return _configuracion_actual()
 
 
-def actualizar_configuracion_calibracion(configuracion):
+def actualizar_configuracion_calibracion(configuracion, persistir=True):
     global PLANO_ANCHO_CM, PLANO_ALTO_CM, MARCADORES_PLANO
 
     plano_cm = (configuracion or {}).get("plano_cm") or {}
@@ -81,6 +106,9 @@ def actualizar_configuracion_calibracion(configuracion):
         PLANO_ANCHO_CM = ancho
         PLANO_ALTO_CM = alto
         MARCADORES_PLANO = nuevo_mapeo
+
+    if persistir:
+        guardar_configuracion_calibracion()
 
     return obtener_configuracion_calibracion()
 
@@ -307,3 +335,6 @@ def procesar_frame(frame, return_metadata=False):
         return resultado, detecciones, calibracion
 
     return resultado
+
+
+cargar_configuracion_calibracion()
