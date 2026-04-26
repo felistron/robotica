@@ -49,7 +49,7 @@ def clasificar_figura(vertices):
         return f"polígono ({n} lados)"
 
 
-def procesar_frame(frame):
+def procesar_frame(frame, return_metadata=False):
     """
     Detecta figuras geométricas y colores en un frame.
     Devuelve el frame anotado con etiquetas.
@@ -68,6 +68,8 @@ def procesar_frame(frame):
 
     # Encontrar contornos
     contornos, _ = cv2.findContours(bordes, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    detecciones = []
 
     for contorno in contornos:
         area = cv2.contourArea(contorno)
@@ -98,6 +100,14 @@ def procesar_frame(frame):
         else:
             cx, cy = x + w // 2, y + h // 2
 
+        detecciones.append({
+            "figura": figura,
+            "color": color,
+            "area_px": float(area),
+            "centroide_px": {"x": cx, "y": cy},
+            "bbox_px": {"x": x, "y": y, "w": w, "h": h},
+        })
+
         etiqueta = f"{figura} ({color})"
         (tw, th), _ = cv2.getTextSize(etiqueta, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 2)
 
@@ -109,5 +119,8 @@ def procesar_frame(frame):
 
         cv2.putText(resultado, etiqueta, (cx - tw//2, cy),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
+
+    if return_metadata:
+        return resultado, detecciones
 
     return resultado

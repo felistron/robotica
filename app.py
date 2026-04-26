@@ -1,26 +1,51 @@
 import base64
 
-from flask import Flask, render_template, jsonify, request
 import cv2
-import threading
+import numpy as np
+from flask import Flask, jsonify, render_template, request
+from flask_socketio import SocketIO, emit
+
 from detector import procesar_frame
 
-import numpy as np
 
 app = Flask(__name__)
-
-# Estado global de la cámara
-camara = None
-lock = threading.Lock()
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 
-def obtener_camara():
-    global camara
-    if camara is None or not camara.isOpened():
-        camara = cv2.VideoCapture(0)
-        camara.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        camara.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-    return camara
+def _decodificar_imagen(imagen_codificada):
+    if not imagen_codificada:
+        raise ValueError("No se recibió imagen")
+
+    if "," in imagen_codificada:
+        imagen_codificada = imagen_codificada.split(",", 1)[1]
+
+    img_bytes = base64.b64decode(imagen_codificada)
+    np_arr = np.frombuffer(img_bytes, np.uint8)
+    frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+
+    if frame is None:
+        raise ValueError("No se pudo decodificar el frame")
+
+    return frame
+
+
+def _procesar_imagen_codificada(imagen_codificada):
+    frame = _decodificar_imagen(imagen_codificada)
+    resultado, detecciones = procesar_frame(frame, return_metadata=True)
+
+    exito, buffer = cv2.imencode(
+        ".jpg",
+        resultado,
+        [cv2.IMWRITE_JPEG_QUALITY, 80],
+    )
+    if not exito:
+        raise ValueError("No se pudo codificar el resultado")
+
+    img_b64 = base64.b64encode(buffer).decode("utf-8")
+    return {
+        "imagen": f"data:image/jpeg;base64,{img_b64}",
+        "detecciones": detecciones,
+    }
 
 
 @app.route('/')
@@ -30,18 +55,20 @@ def index():
 
 @app.route('/procesar_frame', methods=['POST'])
 def procesar_frame_endpoint():
-    data = request.json['imagen']  # base64
-    img_bytes = base64.b64decode(data.split(',')[1])
-    np_arr = np.frombuffer(img_bytes, np.uint8)
-    frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+    payload = request.get_json(silent=True) or {}
+    resultado = _procesar_imagen_codificada(payload.get('imagen'))
+    return jsonify(resultado)
 
-    resultado = procesar_frame(frame)
 
-    _, buffer = cv2.imencode('.jpg', resultado, [cv2.IMWRITE_JPEG_QUALITY, 80])
-    img_b64 = base64.b64encode(buffer).decode('utf-8')
-    return jsonify({"imagen": f"data:image/jpeg;base64,{img_b64}"})
+@socketio.on('frame')
+def manejar_frame(datos):
+    try:
+        resultado = _procesar_imagen_codificada(datos.get('imagen'))
+        emit('resultado', resultado)
+    except (ValueError, KeyError) as error:
+        emit('error', {'mensaje': str(error)})
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
+    socketio.run(app, host='0.0.0.0', port=5000, debug=False)
 
