@@ -5,7 +5,11 @@ import numpy as np
 from flask import Flask, jsonify, render_template, request
 from flask_socketio import SocketIO, emit
 
-from detector import procesar_frame
+from detector import (
+    actualizar_configuracion_calibracion,
+    obtener_configuracion_calibracion,
+    procesar_frame,
+)
 
 
 app = Flask(__name__)
@@ -59,6 +63,21 @@ def procesar_frame_endpoint():
     payload = request.get_json(silent=True) or {}
     resultado = _procesar_imagen_codificada(payload.get('imagen'))
     return jsonify(resultado)
+
+
+@app.route('/config/calibracion', methods=['GET'])
+def obtener_config_calibracion_endpoint():
+    return jsonify(obtener_configuracion_calibracion())
+
+
+@app.route('/config/calibracion', methods=['POST'])
+def actualizar_config_calibracion_endpoint():
+    payload = request.get_json(silent=True) or {}
+    try:
+        config = actualizar_configuracion_calibracion(payload)
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    return jsonify(config)
 
 
 @socketio.on('frame')

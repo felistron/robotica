@@ -230,6 +230,33 @@
       margin-top: 8px;
     }
 
+    .config-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(120px, 1fr));
+      gap: 10px;
+    }
+
+    .field {
+      display: grid;
+      gap: 6px;
+    }
+
+    .field label {
+      margin: 0;
+      font-size: 0.8rem;
+    }
+
+    .field input {
+      width: 100%;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background: rgba(2, 6, 23, 0.48);
+      color: var(--text);
+      min-height: 40px;
+      padding: 8px 10px;
+      font: inherit;
+    }
+
     @media (max-width: 980px) {
       .grid { grid-template-columns: 1fr; }
       .toolbar { grid-template-columns: 1fr; }
@@ -286,6 +313,40 @@
         </section>
 
         <section class="card">
+          <h2>Configurar calibración</h2>
+          <div class="config-grid">
+            <div class="field">
+              <label for="planoAncho">Plano ancho (cm)</label>
+              <input type="number" id="planoAncho" min="1" step="0.1">
+            </div>
+            <div class="field">
+              <label for="planoAlto">Plano alto (cm)</label>
+              <input type="number" id="planoAlto" min="1" step="0.1">
+            </div>
+            <div class="field">
+              <label for="idTopLeft">ID top_left</label>
+              <input type="number" id="idTopLeft" min="0" max="49" step="1">
+            </div>
+            <div class="field">
+              <label for="idTopRight">ID top_right</label>
+              <input type="number" id="idTopRight" min="0" max="49" step="1">
+            </div>
+            <div class="field">
+              <label for="idBottomRight">ID bottom_right</label>
+              <input type="number" id="idBottomRight" min="0" max="49" step="1">
+            </div>
+            <div class="field">
+              <label for="idBottomLeft">ID bottom_left</label>
+              <input type="number" id="idBottomLeft" min="0" max="49" step="1">
+            </div>
+          </div>
+          <div class="actions">
+            <button class="secondary" id="loadConfigButton">Recargar config</button>
+            <button class="primary" id="saveConfigButton">Aplicar config</button>
+          </div>
+        </section>
+
+        <section class="card">
           <h2>Detecciones</h2>
           <div class="detections" id="detectionsList">
             <div class="empty">Aquí aparecerán las figuras detectadas con su forma, color y centroide.</div>
@@ -304,11 +365,19 @@
     const startButton = document.getElementById('startButton');
     const stopButton = document.getElementById('stopButton');
     const refreshButton = document.getElementById('refreshButton');
+    const loadConfigButton = document.getElementById('loadConfigButton');
+    const saveConfigButton = document.getElementById('saveConfigButton');
     const detectionsList = document.getElementById('detectionsList');
     const infoMeta = document.getElementById('infoMeta');
     const estadoTexto = document.getElementById('estado-texto');
     const estadoDot = document.getElementById('estado-dot');
     const fpsLabel = document.getElementById('fpsLabel');
+    const planoAnchoInput = document.getElementById('planoAncho');
+    const planoAltoInput = document.getElementById('planoAlto');
+    const idTopLeftInput = document.getElementById('idTopLeft');
+    const idTopRightInput = document.getElementById('idTopRight');
+    const idBottomRightInput = document.getElementById('idBottomRight');
+    const idBottomLeftInput = document.getElementById('idBottomLeft');
 
     let stream = null;
     let corriendo = false;
@@ -369,6 +438,58 @@
 
     function actualizarMeta(textos) {
       infoMeta.innerHTML = textos.map((texto) => `<div>${texto}</div>`).join('');
+    }
+
+    function aplicarConfigEnFormulario(config) {
+      if (!config) {
+        return;
+      }
+
+      planoAnchoInput.value = config.plano_cm?.ancho ?? '';
+      planoAltoInput.value = config.plano_cm?.alto ?? '';
+      idTopLeftInput.value = config.ids_por_esquina?.top_left ?? '';
+      idTopRightInput.value = config.ids_por_esquina?.top_right ?? '';
+      idBottomRightInput.value = config.ids_por_esquina?.bottom_right ?? '';
+      idBottomLeftInput.value = config.ids_por_esquina?.bottom_left ?? '';
+    }
+
+    async function cargarConfigCalibracion() {
+      const res = await fetch('/config/calibracion');
+      if (!res.ok) {
+        throw new Error('No se pudo cargar la configuración');
+      }
+      const config = await res.json();
+      aplicarConfigEnFormulario(config);
+      return config;
+    }
+
+    async function guardarConfigCalibracion() {
+      const payload = {
+        plano_cm: {
+          ancho: Number(planoAnchoInput.value),
+          alto: Number(planoAltoInput.value),
+        },
+        ids_por_esquina: {
+          top_left: Number(idTopLeftInput.value),
+          top_right: Number(idTopRightInput.value),
+          bottom_right: Number(idBottomRightInput.value),
+          bottom_left: Number(idBottomLeftInput.value),
+        },
+      };
+
+      const res = await fetch('/config/calibracion', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'No se pudo guardar la configuración');
+      }
+
+      aplicarConfigEnFormulario(data);
+      return data;
     }
 
     async function cargarCamaras() {
@@ -533,6 +654,34 @@
       }
     });
 
+    loadConfigButton.addEventListener('click', async () => {
+      try {
+        const config = await cargarConfigCalibracion();
+        setEstado('Configuración recargada', '#22c55e');
+        actualizarMeta([
+          `Plano: ${config.plano_cm.ancho} x ${config.plano_cm.alto} cm`,
+          `IDs: TL ${config.ids_por_esquina.top_left}, TR ${config.ids_por_esquina.top_right}, BR ${config.ids_por_esquina.bottom_right}, BL ${config.ids_por_esquina.bottom_left}`,
+          'Config aplicada desde backend',
+        ]);
+      } catch (error) {
+        setEstado(error.message, '#ef4444');
+      }
+    });
+
+    saveConfigButton.addEventListener('click', async () => {
+      try {
+        const config = await guardarConfigCalibracion();
+        setEstado('Configuración aplicada', '#22c55e');
+        actualizarMeta([
+          `Plano: ${config.plano_cm.ancho} x ${config.plano_cm.alto} cm`,
+          `IDs: TL ${config.ids_por_esquina.top_left}, TR ${config.ids_por_esquina.top_right}, BR ${config.ids_por_esquina.bottom_right}, BL ${config.ids_por_esquina.bottom_left}`,
+          'La calibración usará esta configuración en tiempo real',
+        ]);
+      } catch (error) {
+        setEstado(error.message, '#ef4444');
+      }
+    });
+
     navigator.mediaDevices.addEventListener('devicechange', () => {
       cargarCamaras().catch(console.error);
     });
@@ -540,6 +689,7 @@
     (async () => {
       try {
         await cargarCamaras();
+        await cargarConfigCalibracion();
         setEstado('Selecciona una cámara para iniciar', '#f59e0b');
       } catch (error) {
         console.error(error);

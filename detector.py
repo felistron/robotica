@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+import threading
 
 # Rangos de color en espacio HSV
 COLORES_HSV = {
@@ -23,10 +24,65 @@ MARCADORES_PLANO = {
     2: "bottom_right",
     3: "bottom_left",
 }
+CONFIG_LOCK = threading.Lock()
 
 ARUCO_DICT = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
 ARUCO_PARAMS = cv2.aruco.DetectorParameters()
 ARUCO_DETECTOR = cv2.aruco.ArucoDetector(ARUCO_DICT, ARUCO_PARAMS)
+
+
+def obtener_configuracion_calibracion():
+    with CONFIG_LOCK:
+        ids_por_esquina = {esquina: marker_id for marker_id, esquina in MARCADORES_PLANO.items()}
+        return {
+            "plano_cm": {
+                "ancho": float(PLANO_ANCHO_CM),
+                "alto": float(PLANO_ALTO_CM),
+            },
+            "ids_por_esquina": ids_por_esquina,
+            "diccionario_aruco": "DICT_4X4_50",
+        }
+
+
+def actualizar_configuracion_calibracion(configuracion):
+    global PLANO_ANCHO_CM, PLANO_ALTO_CM, MARCADORES_PLANO
+
+    plano_cm = (configuracion or {}).get("plano_cm") or {}
+    ids_por_esquina = (configuracion or {}).get("ids_por_esquina") or {}
+
+    try:
+        ancho = float(plano_cm.get("ancho"))
+        alto = float(plano_cm.get("alto"))
+    except (TypeError, ValueError):
+        raise ValueError("El tamaño del plano debe ser numérico")
+
+    if ancho <= 0 or alto <= 0:
+        raise ValueError("El tamaño del plano debe ser mayor a 0")
+
+    esquinas_validas = ["top_left", "top_right", "bottom_right", "bottom_left"]
+    if sorted(ids_por_esquina.keys()) != sorted(esquinas_validas):
+        raise ValueError("Debes enviar IDs para: top_left, top_right, bottom_right y bottom_left")
+
+    nuevo_mapeo = {}
+    for esquina in esquinas_validas:
+        try:
+            marker_id = int(ids_por_esquina[esquina])
+        except (TypeError, ValueError):
+            raise ValueError(f"ID inválido para {esquina}")
+
+        if marker_id < 0 or marker_id > 49:
+            raise ValueError("Los IDs deben estar entre 0 y 49 para DICT_4X4_50")
+        nuevo_mapeo[marker_id] = esquina
+
+    if len(nuevo_mapeo) != 4:
+        raise ValueError("Los 4 IDs deben ser únicos")
+
+    with CONFIG_LOCK:
+        PLANO_ANCHO_CM = ancho
+        PLANO_ALTO_CM = alto
+        MARCADORES_PLANO = nuevo_mapeo
+
+    return obtener_configuracion_calibracion()
 
 def detectar_color(region_hsv):
     """Detecta el color dominante en una región HSV."""
@@ -67,13 +123,21 @@ def _detectar_calibracion_aruco(frame, resultado):
     """Calcula homografía de píxeles a centímetros usando 4 marcadores ArUco."""
     corners, ids, _ = ARUCO_DETECTOR.detectMarkers(frame)
 
+    with CONFIG_LOCK:
+        plano_ancho_cm = float(PLANO_ANCHO_CM)
+        plano_alto_cm = float(PLANO_ALTO_CM)
+        marcadores_plano = dict(MARCADORES_PLANO)
+
+    ids_por_esquina = {esquina: marker_id for marker_id, esquina in marcadores_plano.items()}
+
     calibracion = {
         "activa": False,
         "marcadores_detectados": [],
-        "marcadores_requeridos": sorted(MARCADORES_PLANO.keys()),
+        "marcadores_requeridos": sorted(marcadores_plano.keys()),
+        "ids_por_esquina": ids_por_esquina,
         "plano_cm": {
-            "ancho": PLANO_ANCHO_CM,
-            "alto": PLANO_ALTO_CM,
+            "ancho": plano_ancho_cm,
+            "alto": plano_alto_cm,
         },
         "motivo": "No se detectaron marcadores",
     }
@@ -97,22 +161,27 @@ def _detectar_calibracion_aruco(frame, resultado):
         centro_y = float(np.mean(puntos[:, 1]))
         centros[marker_id] = (centro_x, centro_y)
 
-    faltantes = [marker_id for marker_id in MARCADORES_PLANO if marker_id not in centros]
+    faltantes = [marker_id for marker_id in marcadores_plano if marker_id not in centros]
     if faltantes:
         calibracion["motivo"] = f"Faltan marcadores requeridos: {faltantes}"
         return calibracion, None, mascara_marcadores
 
+    marker_tl = ids_por_esquina["top_left"]
+    marker_tr = ids_por_esquina["top_right"]
+    marker_br = ids_por_esquina["bottom_right"]
+    marker_bl = ids_por_esquina["bottom_left"]
+
     puntos_imagen = np.float32([
-        centros[0],
-        centros[1],
-        centros[2],
-        centros[3],
+        centros[marker_tl],
+        centros[marker_tr],
+        centros[marker_br],
+        centros[marker_bl],
     ])
     puntos_plano_cm = np.float32([
         [0.0, 0.0],
-        [PLANO_ANCHO_CM, 0.0],
-        [PLANO_ANCHO_CM, PLANO_ALTO_CM],
-        [0.0, PLANO_ALTO_CM],
+        [plano_ancho_cm, 0.0],
+        [plano_ancho_cm, plano_alto_cm],
+        [0.0, plano_alto_cm],
     ])
 
     homografia = cv2.getPerspectiveTransform(puntos_imagen, puntos_plano_cm)
@@ -151,6 +220,8 @@ def procesar_frame(frame, return_metadata=False):
     gris = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
     calibracion, homografia, mascara_marcadores = _detectar_calibracion_aruco(frame, resultado)
+    plano_ancho_cm = float(calibracion["plano_cm"]["ancho"])
+    plano_alto_cm = float(calibracion["plano_cm"]["alto"])
 
     # Suavizado y detección de bordes
     blur = cv2.GaussianBlur(gris, (5, 5), 0)
@@ -205,7 +276,7 @@ def procesar_frame(frame, return_metadata=False):
         en_plano = False
         if homografia is not None:
             x_cm, y_cm = _pixel_a_cm(homografia, cx, cy)
-            en_plano = 0.0 <= x_cm <= PLANO_ANCHO_CM and 0.0 <= y_cm <= PLANO_ALTO_CM
+            en_plano = 0.0 <= x_cm <= plano_ancho_cm and 0.0 <= y_cm <= plano_alto_cm
             centroide_cm = {"x": round(x_cm, 2), "y": round(y_cm, 2)}
 
         detecciones.append({
