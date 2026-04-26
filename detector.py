@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import numpy as np
 import threading
+import time
 
 # Rangos de color en espacio HSV
 COLORES_HSV = {
@@ -34,6 +35,10 @@ TRACK_TIMEOUT_FRAMES = 10
 TRACK_LOCK = threading.Lock()
 TRACK_ID_SEED = 0
 TRACKS = {}
+CALIBRATION_HOLD_SECONDS = 3.0
+LAST_HOMOGRAPHY = None
+LAST_CALIBRATION = None
+LAST_CALIBRATION_TS = 0.0
 
 ARUCO_DICT = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
 ARUCO_PARAMS = cv2.aruco.DetectorParameters()
@@ -77,6 +82,7 @@ def obtener_configuracion_calibracion():
 
 def actualizar_configuracion_calibracion(configuracion, persistir=True):
     global PLANO_ANCHO_CM, PLANO_ALTO_CM, MARCADORES_PLANO
+    global LAST_HOMOGRAPHY, LAST_CALIBRATION, LAST_CALIBRATION_TS
 
     plano_cm = (configuracion or {}).get("plano_cm") or {}
     ids_por_esquina = (configuracion or {}).get("ids_por_esquina") or {}
@@ -112,6 +118,10 @@ def actualizar_configuracion_calibracion(configuracion, persistir=True):
         PLANO_ANCHO_CM = ancho
         PLANO_ALTO_CM = alto
         MARCADORES_PLANO = nuevo_mapeo
+
+    LAST_HOMOGRAPHY = None
+    LAST_CALIBRATION = None
+    LAST_CALIBRATION_TS = 0.0
 
     if persistir:
         guardar_configuracion_calibracion()
@@ -155,6 +165,8 @@ def clasificar_figura(vertices):
 
 def _detectar_calibracion_aruco(frame, resultado):
     """Calcula homografía de píxeles a centímetros usando 4 marcadores ArUco."""
+    global LAST_HOMOGRAPHY, LAST_CALIBRATION, LAST_CALIBRATION_TS
+
     corners, ids, _ = ARUCO_DETECTOR.detectMarkers(frame)
 
     with CONFIG_LOCK:
@@ -179,6 +191,12 @@ def _detectar_calibracion_aruco(frame, resultado):
     mascara_marcadores = np.zeros(frame.shape[:2], dtype=np.uint8)
 
     if ids is None or len(ids) == 0:
+        if LAST_HOMOGRAPHY is not None and LAST_CALIBRATION is not None:
+            if time.monotonic() - LAST_CALIBRATION_TS <= CALIBRATION_HOLD_SECONDS:
+                calibracion_retenida = dict(LAST_CALIBRATION)
+                calibracion_retenida["motivo"] = "Usando última calibración válida"
+                calibracion_retenida["activa"] = True
+                return calibracion_retenida, LAST_HOMOGRAPHY.copy(), mascara_marcadores
         return calibracion, None, mascara_marcadores
 
     cv2.aruco.drawDetectedMarkers(resultado, corners, ids)
@@ -234,6 +252,10 @@ def _detectar_calibracion_aruco(frame, resultado):
         "bottom_right": {"x": float(puntos_imagen[2][0]), "y": float(puntos_imagen[2][1])},
         "bottom_left": {"x": float(puntos_imagen[3][0]), "y": float(puntos_imagen[3][1])},
     }
+
+    LAST_HOMOGRAPHY = homografia.copy()
+    LAST_CALIBRATION = dict(calibracion)
+    LAST_CALIBRATION_TS = time.monotonic()
 
     return calibracion, homografia, mascara_marcadores
 
