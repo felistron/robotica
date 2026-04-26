@@ -331,17 +331,40 @@
 
       detectionsList.innerHTML = detecciones.map((deteccion, index) => {
         const centroide = deteccion.centroide_px;
+        const centroideCm = deteccion.centroide_cm;
         const bbox = deteccion.bbox_px;
+        const textoCm = centroideCm
+          ? `Centroide cm: (${centroideCm.x.toFixed(2)}, ${centroideCm.y.toFixed(2)})`
+          : 'Centroide cm: calibración no disponible';
+        const enPlano = centroideCm
+          ? `En plano: ${deteccion.en_plano ? 'sí' : 'no'}`
+          : '';
         return `
           <article class="detection">
             <strong>#${index + 1} ${deteccion.figura}</strong><br>
             Color: ${deteccion.color}<br>
             Centroide px: (${centroide.x}, ${centroide.y})<br>
+            ${textoCm}<br>
+            ${enPlano ? `${enPlano}<br>` : ''}
             Área: ${Math.round(deteccion.area_px)} px²<br>
             Caja: ${bbox.w} x ${bbox.h}
           </article>
         `;
       }).join('');
+    }
+
+    function descripcionCalibracion(calibracion) {
+      if (!calibracion) {
+        return 'Sin información de calibración';
+      }
+
+      if (calibracion.activa) {
+        const ancho = calibracion.plano_cm?.ancho ?? '?';
+        const alto = calibracion.plano_cm?.alto ?? '?';
+        return `ArUco activa (${ancho} x ${alto} cm)`;
+      }
+
+      return calibracion.motivo || 'Calibración ArUco inactiva';
     }
 
     function actualizarMeta(textos) {
@@ -444,8 +467,11 @@
       enviando = false;
       resultado.src = data.imagen;
       renderDetections(data.detecciones || []);
+      const calibracion = data.calibracion || null;
       actualizarMeta([
         `Detecciones: ${data.detecciones ? data.detecciones.length : 0}`,
+        `Calibración: ${descripcionCalibracion(calibracion)}`,
+        `Marcadores detectados: ${(calibracion?.marcadores_detectados || []).join(', ') || 'ninguno'}`,
         'Modo: streaming en navegador',
       ]);
 

@@ -31,7 +31,7 @@ def _decodificar_imagen(imagen_codificada):
 
 def _procesar_imagen_codificada(imagen_codificada):
     frame = _decodificar_imagen(imagen_codificada)
-    resultado, detecciones = procesar_frame(frame, return_metadata=True)
+    resultado, detecciones, calibracion = procesar_frame(frame, return_metadata=True)
 
     exito, buffer = cv2.imencode(
         ".jpg",
@@ -45,6 +45,7 @@ def _procesar_imagen_codificada(imagen_codificada):
     return {
         "imagen": f"data:image/jpeg;base64,{img_b64}",
         "detecciones": detecciones,
+        "calibracion": calibracion,
     }
 
 

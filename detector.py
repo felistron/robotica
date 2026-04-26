@@ -14,6 +14,20 @@ COLORES_HSV = {
     "negro":    [(0, 0, 0),     (180, 255, 50)],
 }
 
+# Configuración del plano físico y marcadores ArUco para calibración.
+PLANO_ANCHO_CM = 40.0
+PLANO_ALTO_CM = 30.0
+MARCADORES_PLANO = {
+    0: "top_left",
+    1: "top_right",
+    2: "bottom_right",
+    3: "bottom_left",
+}
+
+ARUCO_DICT = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
+ARUCO_PARAMS = cv2.aruco.DetectorParameters()
+ARUCO_DETECTOR = cv2.aruco.ArucoDetector(ARUCO_DICT, ARUCO_PARAMS)
+
 def detectar_color(region_hsv):
     """Detecta el color dominante en una región HSV."""
     mejor_color = "desconocido"
@@ -49,6 +63,84 @@ def clasificar_figura(vertices):
         return f"polígono ({n} lados)"
 
 
+def _detectar_calibracion_aruco(frame, resultado):
+    """Calcula homografía de píxeles a centímetros usando 4 marcadores ArUco."""
+    corners, ids, _ = ARUCO_DETECTOR.detectMarkers(frame)
+
+    calibracion = {
+        "activa": False,
+        "marcadores_detectados": [],
+        "marcadores_requeridos": sorted(MARCADORES_PLANO.keys()),
+        "plano_cm": {
+            "ancho": PLANO_ANCHO_CM,
+            "alto": PLANO_ALTO_CM,
+        },
+        "motivo": "No se detectaron marcadores",
+    }
+
+    mascara_marcadores = np.zeros(frame.shape[:2], dtype=np.uint8)
+
+    if ids is None or len(ids) == 0:
+        return calibracion, None, mascara_marcadores
+
+    cv2.aruco.drawDetectedMarkers(resultado, corners, ids)
+
+    ids_lista = [int(valor) for valor in ids.flatten()]
+    calibracion["marcadores_detectados"] = sorted(ids_lista)
+
+    centros = {}
+    for marker_id, marker_corners in zip(ids.flatten(), corners):
+        marker_id = int(marker_id)
+        puntos = marker_corners[0]
+        cv2.fillConvexPoly(mascara_marcadores, np.int32(puntos), 255)
+        centro_x = float(np.mean(puntos[:, 0]))
+        centro_y = float(np.mean(puntos[:, 1]))
+        centros[marker_id] = (centro_x, centro_y)
+
+    faltantes = [marker_id for marker_id in MARCADORES_PLANO if marker_id not in centros]
+    if faltantes:
+        calibracion["motivo"] = f"Faltan marcadores requeridos: {faltantes}"
+        return calibracion, None, mascara_marcadores
+
+    puntos_imagen = np.float32([
+        centros[0],
+        centros[1],
+        centros[2],
+        centros[3],
+    ])
+    puntos_plano_cm = np.float32([
+        [0.0, 0.0],
+        [PLANO_ANCHO_CM, 0.0],
+        [PLANO_ANCHO_CM, PLANO_ALTO_CM],
+        [0.0, PLANO_ALTO_CM],
+    ])
+
+    homografia = cv2.getPerspectiveTransform(puntos_imagen, puntos_plano_cm)
+    if homografia is None or not np.isfinite(homografia).all():
+        calibracion["motivo"] = "No se pudo calcular la homografía"
+        return calibracion, None, mascara_marcadores
+
+    poligono = np.array(puntos_imagen, dtype=np.int32).reshape(-1, 1, 2)
+    cv2.polylines(resultado, [poligono], True, (255, 120, 0), 2)
+
+    calibracion["activa"] = True
+    calibracion["motivo"] = "Calibración ArUco activa"
+    calibracion["esquinas_px"] = {
+        "top_left": {"x": float(puntos_imagen[0][0]), "y": float(puntos_imagen[0][1])},
+        "top_right": {"x": float(puntos_imagen[1][0]), "y": float(puntos_imagen[1][1])},
+        "bottom_right": {"x": float(puntos_imagen[2][0]), "y": float(puntos_imagen[2][1])},
+        "bottom_left": {"x": float(puntos_imagen[3][0]), "y": float(puntos_imagen[3][1])},
+    }
+
+    return calibracion, homografia, mascara_marcadores
+
+
+def _pixel_a_cm(homografia, x_px, y_px):
+    punto_px = np.array([[[float(x_px), float(y_px)]]], dtype=np.float32)
+    punto_cm = cv2.perspectiveTransform(punto_px, homografia)[0][0]
+    return float(punto_cm[0]), float(punto_cm[1])
+
+
 def procesar_frame(frame, return_metadata=False):
     """
     Detecta figuras geométricas y colores en un frame.
@@ -57,6 +149,8 @@ def procesar_frame(frame, return_metadata=False):
     resultado = frame.copy()
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
     gris = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+    calibracion, homografia, mascara_marcadores = _detectar_calibracion_aruco(frame, resultado)
 
     # Suavizado y detección de bordes
     blur = cv2.GaussianBlur(gris, (5, 5), 0)
@@ -75,6 +169,13 @@ def procesar_frame(frame, return_metadata=False):
         area = cv2.contourArea(contorno)
         if area < 1500:  # Ignorar figuras muy pequeñas
             continue
+
+        if cv2.countNonZero(mascara_marcadores) > 0:
+            mascara_contorno = np.zeros(gris.shape, dtype=np.uint8)
+            cv2.drawContours(mascara_contorno, [contorno], -1, 255, -1)
+            superposicion = cv2.countNonZero(cv2.bitwise_and(mascara_contorno, mascara_marcadores))
+            if superposicion / max(area, 1.0) > 0.35:
+                continue
 
         # Aproximar polígono
         perimetro = cv2.arcLength(contorno, True)
@@ -100,15 +201,26 @@ def procesar_frame(frame, return_metadata=False):
         else:
             cx, cy = x + w // 2, y + h // 2
 
+        centroide_cm = None
+        en_plano = False
+        if homografia is not None:
+            x_cm, y_cm = _pixel_a_cm(homografia, cx, cy)
+            en_plano = 0.0 <= x_cm <= PLANO_ANCHO_CM and 0.0 <= y_cm <= PLANO_ALTO_CM
+            centroide_cm = {"x": round(x_cm, 2), "y": round(y_cm, 2)}
+
         detecciones.append({
             "figura": figura,
             "color": color,
             "area_px": float(area),
             "centroide_px": {"x": cx, "y": cy},
+            "centroide_cm": centroide_cm,
+            "en_plano": en_plano,
             "bbox_px": {"x": x, "y": y, "w": w, "h": h},
         })
 
         etiqueta = f"{figura} ({color})"
+        if centroide_cm is not None:
+            etiqueta += f" {centroide_cm['x']:.1f}cm,{centroide_cm['y']:.1f}cm"
         (tw, th), _ = cv2.getTextSize(etiqueta, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 2)
 
         # Fondo semitransparente para el texto
@@ -121,6 +233,6 @@ def procesar_frame(frame, return_metadata=False):
                     cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
 
     if return_metadata:
-        return resultado, detecciones
+        return resultado, detecciones, calibracion
 
     return resultado
