@@ -4,6 +4,9 @@ import cv2
 import numpy as np
 from flask import Flask, jsonify, render_template, request
 from flask_socketio import SocketIO, emit
+import time
+
+from serial_handler import SerialHandler
 
 from detector import (
     actualizar_configuracion_calibracion,
@@ -14,6 +17,13 @@ from detector import (
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
+
+# Serial and send-once tracking
+serialer = SerialHandler()
+_TRACK_LAST_SEEN = {}
+_SENT_TRACKS = set()
+_LAST_PRUNE = time.time()
+_PRUNE_TIMEOUT = 2.0  # seconds without seeing track -> allow resend
 
 
 def _decodificar_imagen(imagen_codificada):
@@ -85,8 +95,81 @@ def manejar_frame(datos):
     try:
         resultado = _procesar_imagen_codificada(datos.get('imagen'))
         emit('resultado', resultado)
+        # Non-blocking: enqueue detections for serial sending following rules:
+        try:
+            ahora = time.time()
+            detecciones = resultado.get('detecciones', []) or []
+            for d in detecciones:
+                track = d.get('track_id')
+                if track is None:
+                    continue
+                _TRACK_LAST_SEEN[track] = ahora
+                color = (d.get('color') or '').lower()
+                en_plano = bool(d.get('en_plano', False))
+                # send only once per stable detection, only rojo/azul and en_plano
+                if en_plano and color in ('rojo', 'azul') and track not in _SENT_TRACKS:
+                    centro = d.get('centroide_cm') or {}
+                    x = centro.get('x')
+                    y = centro.get('y')
+                    try:
+                        serialer.send_detection(track, d.get('figura', ''), color, x, y)
+                        _SENT_TRACKS.add(track)
+                    except Exception:
+                        pass
+
+            # prune old tracks to allow future re-sends
+            global _LAST_PRUNE
+            if ahora - _LAST_PRUNE > 1.0:
+                expirados = [t for t, ts in _TRACK_LAST_SEEN.items() if ahora - ts > _PRUNE_TIMEOUT]
+                for t in expirados:
+                    _TRACK_LAST_SEEN.pop(t, None)
+                    _SENT_TRACKS.discard(t)
+                _LAST_PRUNE = ahora
+        except Exception:
+            # keep frame processing robust
+            pass
     except (ValueError, KeyError) as error:
         emit('error', {'mensaje': str(error)})
+
+
+@app.route('/serial/ports', methods=['GET'])
+def serial_ports():
+    try:
+        ports = serialer.list_ports()
+        return jsonify({'ports': ports})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/serial/connect', methods=['POST'])
+def serial_connect():
+    payload = request.get_json(silent=True) or {}
+    port = payload.get('port')
+    baud = int(payload.get('baud', 115200))
+    if not port:
+        return jsonify({'error': 'Se requiere puerto'}), 400
+    try:
+        serialer.connect(port, baud)
+        return jsonify(serialer.get_status())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/serial/disconnect', methods=['POST'])
+def serial_disconnect():
+    try:
+        serialer.disconnect()
+        return jsonify(serialer.get_status())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/serial/status', methods=['GET'])
+def serial_status():
+    try:
+        return jsonify(serialer.get_status())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 if __name__ == '__main__':

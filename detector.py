@@ -528,7 +528,7 @@ def procesar_frame(frame, return_metadata=False):
 
     for contorno in contornos:
         area = cv2.contourArea(contorno)
-        if area < 1500:  # Ignorar figuras muy pequeñas
+        if area < 500:  # Ignorar figuras muy pequeñas
             continue
 
         if area_trabajo.shape[0] == 4:
