@@ -1,11 +1,11 @@
 {
   "plano_cm": {
-    "ancho": 16.0,
-    "alto": 22.0
+    "ancho": 21.0,
+    "alto": 15.0
   },
   "origen_cm": {
-    "x": 8.0,
-    "y": 22.0
+    "x": 11.5,
+    "y": 15.0
   },
   "invertir_eje_y": true,
   "ids_por_esquina": {
