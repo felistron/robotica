@@ -112,9 +112,6 @@ def actualizar_configuracion_calibracion(configuracion, persistir=True):
     except (TypeError, ValueError):
         raise ValueError("El origen debe ser numérico")
 
-    if origen_x < 0.0 or origen_x > ancho or origen_y < 0.0 or origen_y > alto:
-        raise ValueError("El origen debe estar dentro del plano configurado")
-
     if isinstance(invertir_eje_y_raw, bool):
         invertir_eje_y = invertir_eje_y_raw
     elif isinstance(invertir_eje_y_raw, (int, float)) and invertir_eje_y_raw in (0, 1):
