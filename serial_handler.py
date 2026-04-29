@@ -16,6 +16,7 @@ class SerialHandler:
         self.baud = 115200
         self._ser = None
         self._queue = queue.Queue()
+        self._read_buffer = bytearray()
         self._stop_event = threading.Event()
         self._thread = threading.Thread(target=self._worker, daemon=True)
         self._thread.start()
@@ -29,6 +30,7 @@ class SerialHandler:
     def connect(self, port: str, baud: int = 115200):
         self.port = port
         self.baud = int(baud)
+        self._read_buffer.clear()
 
     def disconnect(self):
         # clearing port will cause worker to close underlying serial
@@ -38,6 +40,7 @@ class SerialHandler:
                 self._ser.close()
         except Exception:
             pass
+        self._read_buffer.clear()
 
     def get_status(self):
         return {
@@ -59,6 +62,7 @@ class SerialHandler:
             y = ''
 
         linea = f"{track_id},{figura},{color},{x},{y}\n"
+        print(f"[TO ARDUINO] {linea.strip()}", flush=True)
         self._queue.put(linea.encode('utf-8'))
 
     def _worker(self):
@@ -83,6 +87,8 @@ class SerialHandler:
 
             # if connected, drain queue
             if self._ser is not None and getattr(self._ser, 'is_open', False):
+                self._leer_mensajes_serial()
+
                 try:
                     data = self._queue.get(timeout=0.5)
                 except queue.Empty:
@@ -104,6 +110,41 @@ class SerialHandler:
             else:
                 # not connected, sleep briefly
                 time.sleep(0.5)
+
+    def _leer_mensajes_serial(self):
+        if self._ser is None or not getattr(self._ser, 'is_open', False):
+            return
+
+        try:
+            bytes_pendientes = self._ser.in_waiting
+        except Exception:
+            return
+
+        if bytes_pendientes <= 0:
+            return
+
+        try:
+            data = self._ser.read(bytes_pendientes)
+        except Exception:
+            return
+
+        if not data:
+            return
+
+        self._read_buffer.extend(data)
+
+        while True:
+            try:
+                indice_nueva_linea = self._read_buffer.index(10)  # \n
+            except ValueError:
+                break
+
+            linea = self._read_buffer[:indice_nueva_linea + 1]
+            del self._read_buffer[:indice_nueva_linea + 1]
+
+            texto = linea.decode('utf-8', errors='replace').rstrip('\r\n')
+            if texto:
+                print(f"[ARDUINO] {texto}", flush=True)
 
     def stop(self):
         self._stop_event.set()
