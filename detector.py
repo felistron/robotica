@@ -508,16 +508,21 @@ def procesar_frame(frame, return_metadata=False):
     if area_trabajo.shape[0] == 4:
         cv2.fillConvexPoly(mascara_area_trabajo, area_trabajo, 255)
 
-    # Suavizado y detección de bordes
-    blur = cv2.GaussianBlur(gris, (5, 5), 0)
-    bordes = cv2.Canny(blur, 50, 150)
+    mask_total = np.zeros(gris.shape, dtype=np.uint8)
 
-    # Dilatación para cerrar bordes abiertos
-    kernel = np.ones((3, 3), np.uint8)
-    bordes = cv2.dilate(bordes, kernel, iterations=1)
+    for _, (lower, upper) in COLORES_HSV.items():
+        lower_np = np.array(lower, dtype=np.uint8)
+        upper_np = np.array(upper, dtype=np.uint8)
+
+        mask = cv2.inRange(hsv, lower_np, upper_np)
+        mask_total = cv2.bitwise_or(mask_total, mask)
+    
+    kernel = np.ones((5, 5), np.uint8)
+    mask_total = cv2.morphologyEx(mask_total, cv2.MORPH_CLOSE, kernel)
+    mask_total = cv2.morphologyEx(mask_total, cv2.MORPH_OPEN, kernel)
 
     # Encontrar contornos
-    contornos, _ = cv2.findContours(bordes, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contornos, _ = cv2.findContours(mask_total, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     detecciones = []
 
