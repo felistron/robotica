@@ -7,15 +7,13 @@ import time
 
 # Rangos de color en espacio HSV
 COLORES_HSV = {
-    "rojo":     [(0, 100, 100), (10, 255, 255)],
-    "rojo2":    [(160, 100, 100), (180, 255, 255)],
+    "rojo":     [(0, 70, 70), (10, 255, 255)],
+    "rojo2":    [(160, 70, 70), (180, 255, 255)],
     "naranja":  [(11, 100, 100), (25, 255, 255)],
     "amarillo": [(26, 100, 100), (35, 255, 255)],
     "verde":    [(36, 50, 50),  (85, 255, 255)],
     "azul":     [(86, 50, 50),  (130, 255, 255)],
     "morado":   [(131, 50, 50), (160, 255, 255)],
-    #"blanco":   [(0, 0, 200),   (180, 30, 255)],
-    #"negro":    [(0, 0, 0),     (180, 255, 50)],
 }
 
 # Configuración del plano físico y marcadores ArUco para calibración.
