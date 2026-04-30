@@ -1,7 +1,7 @@
 import threading
 import time
 import queue
-from typing import List
+from typing import Any, Callable, Iterable, List
 
 try:
     import serial
@@ -14,12 +14,19 @@ class SerialHandler:
     def __init__(self):
         self.port = None
         self.baud = 115200
-        self._ser = None
-        self._queue = queue.Queue()
+        self._ser: Any | None = None
+        self._queue: queue.Queue[bytes] = queue.Queue()
         self._read_buffer = bytearray()
+        self._ready = False
+        self._line_callback: Callable[[str], None] | None = None
+        self._state_lock = threading.Lock()
         self._stop_event = threading.Event()
         self._thread = threading.Thread(target=self._worker, daemon=True)
         self._thread.start()
+
+    def set_line_callback(self, callback: Callable[[str], None] | None):
+        with self._state_lock:
+            self._line_callback = callback
 
     def list_ports(self) -> List[str]:
         if serial is None:
@@ -27,31 +34,68 @@ class SerialHandler:
         ports = [p.device for p in serial.tools.list_ports.comports()]
         return ports
 
-    def connect(self, port: str, baud: int = 115200):
-        self.port = port
-        self.baud = int(baud)
-        self._read_buffer.clear()
+    def connect(self, port: str, baud: int = 115200) -> None:
+        with self._state_lock:
+            self.port = port
+            self.baud = int(baud)
+            self._ready = False
+            self._read_buffer.clear()
+            self._vaciar_cola()
 
-    def disconnect(self):
+    def set_ready(self, ready: bool) -> None:
+        with self._state_lock:
+            self._ready = bool(ready)
+
+    def is_ready(self) -> bool:
+        with self._state_lock:
+            return bool(self._ready and self._ser and getattr(self._ser, 'is_open', False))
+
+    def disconnect(self) -> None:
         # clearing port will cause worker to close underlying serial
-        self.port = None
+        with self._state_lock:
+            self.port = None
+            self._ready = False
         try:
             if self._ser is not None:
                 self._ser.close()
         except Exception:
             pass
         self._read_buffer.clear()
+        self._vaciar_cola()
 
-    def get_status(self):
+    def get_status(self) -> dict[str, object]:
         return {
             'connected': bool(self._ser and getattr(self._ser, 'is_open', False)),
+            'ready': self.is_ready(),
             'port': self.port,
             'baud': self.baud,
             'queue_size': self._queue.qsize(),
         }
 
-    def send_detection(self, track_id, figura, color, x_cm, y_cm):
-        # Format CSV: track_id,figura,color,x_cm,y_cm\n
+    def enqueue_line(self, line: str) -> None:
+        if not line.endswith('\n'):
+            line = f'{line}\n'
+        self._queue.put(line.encode('utf-8'))
+
+    def enqueue_lines(self, lines: Iterable[str]) -> None:
+        for line in lines:
+            self.enqueue_line(line)
+
+    def _vaciar_cola(self) -> None:
+        try:
+            while True:
+                self._queue.get_nowait()
+        except queue.Empty:
+            return
+
+    def clear_output_queue(self) -> None:
+        self._vaciar_cola()
+
+    def send_detection(self, track_id: int, figura: str, color: str, x_cm: float | None, y_cm: float | None) -> bool:
+        if not self.is_ready():
+            return False
+
+        # Format CSV: OBJ,x_cm,y_cm,container_index\n
         try:
             x = '' if x_cm is None else f"{float(x_cm):.2f}"
         except Exception:
@@ -61,11 +105,11 @@ class SerialHandler:
         except Exception:
             y = ''
 
-        linea = f"{track_id},{figura},{color},{x},{y}\n"
-        print(f"[TO ARDUINO] {linea.strip()}", flush=True)
-        self._queue.put(linea.encode('utf-8'))
+        linea = f"OBJ,{x},{y},{track_id}"
+        self._queue.put(f"{linea}\n".encode('utf-8'))
+        return True
 
-    def _worker(self):
+    def _worker(self) -> None:
         while not self._stop_event.is_set():
             if serial is None:
                 time.sleep(1.0)
@@ -91,6 +135,7 @@ class SerialHandler:
 
                 try:
                     data = self._queue.get(timeout=0.5)
+                    print(f"[TO ARDUINO] {data}", flush=True)
                 except queue.Empty:
                     continue
                 try:
@@ -111,7 +156,7 @@ class SerialHandler:
                 # not connected, sleep briefly
                 time.sleep(0.5)
 
-    def _leer_mensajes_serial(self):
+    def _leer_mensajes_serial(self) -> None:
         if self._ser is None or not getattr(self._ser, 'is_open', False):
             return
 
@@ -145,8 +190,16 @@ class SerialHandler:
             texto = linea.decode('utf-8', errors='replace').rstrip('\r\n')
             if texto:
                 print(f"[ARDUINO] {texto}", flush=True)
+                callback = None
+                with self._state_lock:
+                    callback = self._line_callback
+                if callback is not None:
+                    try:
+                        callback(texto)
+                    except Exception:
+                        pass
 
-    def stop(self):
+    def stop(self) -> None:
         self._stop_event.set()
         try:
             if self._ser is not None:

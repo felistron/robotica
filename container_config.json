@@ -1,0 +1,14 @@
+{
+  "contenedores": {
+    "rojo": {
+      "indice": 0,
+      "x_cm": 0.0,
+      "y_cm": 13.0
+    },
+    "azul": {
+      "indice": 1,
+      "x_cm": -13.0,
+      "y_cm": 0.0
+    }
+  }
+}
