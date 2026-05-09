@@ -23,8 +23,10 @@ robotica/
 ├── requirements.txt                # Dependencias Python
 ├── templates/
 │   └── index.html                  # Interfaz web del dashboard
-└── cinematica_inversa_3dof_gripper/
-    └── cinematica_inversa_3dof_gripper.ino  # Código del microcontrolador Arduino
+├── cinematica_inversa_3dof_gripper/
+│   └── cinematica_inversa_3dof_gripper.ino  # Código principal del brazo robótico con IK
+└── calibracion_servos_3dof/
+    └── calibracion_servos_3dof.ino  # Calibrador manual de ángulos de servos
 ```
 
 ## Dependencias
@@ -171,3 +173,25 @@ La conexión WebSocket permite comunicación bidireccional en tiempo real con el
 - Los rangos de color en HSV están predefinidos en `detector.py` (rojo, azul, verde, etc.)
 - La interpolación suave de movimiento ocurre en el microcontrolador Arduino
 - Thread-safety: Múltiples locks protegen el acceso a variables compartidas
+
+## Calibración de Servos
+
+El proyecto incluye un **calibrador manual de servos** (`calibracion_servos_3dof.ino`) para ajustar los ángulos de posicionamiento del brazo robótico.
+
+### Uso del Calibrador
+
+1. Cargar el sketch `calibracion_servos_3dof/calibracion_servos_3dof.ino` en el Arduino
+2. Abrir el Monitor Serial a **115200 baud**
+3. Enviar comandos en formato: `<servo> <grados>`
+
+**Comandos disponibles:**
+- `0 <ángulo>` - Servo base (rotación horizontal)
+- `1 <ángulo>` - Servo hombro (articulación superior)
+- `2 <ángulo>` - Servo codo (articulación inferior)
+- `3 <ángulo>` - Servo pinza (apertura/cierre)
+
+**Rango:** 0-180°
+
+**Ejemplo:** `1 45` posiciona el servo del hombro a 45°
+
+El calibrador mostrará continuamente las posiciones actuales de todos los servos.
