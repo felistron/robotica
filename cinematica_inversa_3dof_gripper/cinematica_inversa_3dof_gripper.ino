@@ -29,11 +29,11 @@ const int SERVO_MIN[3]  = {0, 0, 0};
 const int SERVO_MAX[3]  = {180, 180, 180};
 
 // ---- Calibración pinza ----
-const int GRIPPER_OPEN   = 30;
-const int GRIPPER_CLOSED = 80;
+const int GRIPPER_OPEN   = 100;
+const int GRIPPER_CLOSED = 180;
 
 // ---- Geometría (mm) ----
-const float d1 = 90.0f;
+const float d1 = 100.0f;
 const float L2 = 67.0f;
 const float Le = 93.0f;
 
