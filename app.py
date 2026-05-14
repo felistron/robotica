@@ -44,8 +44,8 @@ _PRUNE_TIMEOUT = 2.0  # seconds without seeing track -> allow resend
 def _configuracion_contenedores_por_defecto():
     return {
         'contenedores': {
-            'rojo': {'indice': 0, 'x_cm': 12.0, 'y_cm': 8.0},
-            'azul': {'indice': 1, 'x_cm': 28.0, 'y_cm': 8.0},
+            'rojo': {'indice': 0, 'x_cm': 12.0, 'y_cm': 8.0, 'z_cm': 0.0},
+            'azul': {'indice': 1, 'x_cm': 28.0, 'y_cm': 8.0, 'z_cm': 0.0},
         }
     }
 
@@ -90,6 +90,7 @@ def actualizar_configuracion_contenedores(configuracion, persistir=True):
             indice = int(datos.get('indice', indice_default))
             x_cm = float(datos.get('x_cm'))
             y_cm = float(datos.get('y_cm'))
+            z_cm = float(datos.get('z_cm', 0.0))
         except (TypeError, ValueError):
             raise ValueError(f'Contenedor inválido para {color}')
 
@@ -100,6 +101,7 @@ def actualizar_configuracion_contenedores(configuracion, persistir=True):
             'indice': indice,
             'x_cm': round(x_cm, 2),
             'y_cm': round(y_cm, 2),
+            'z_cm': round(z_cm, 2),
         }
 
     with CONTAINER_CONFIG_LOCK:
@@ -120,7 +122,7 @@ def _lineas_handshake_contenedores(configuracion=None):
         if not datos:
             continue
         lineas.append(
-            f"CFG,CONT,{color},{int(datos['indice'])},{float(datos['x_cm']):.2f},{float(datos['y_cm']):.2f}"
+            f"CFG,CONT,{color},{int(datos['indice'])},{float(datos['x_cm']):.2f},{float(datos['y_cm']):.2f},{float(datos.get('z_cm', 0.0)):.2f}"
         )
     lineas.append('CFG,END')
     return lineas

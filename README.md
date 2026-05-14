@@ -140,8 +140,8 @@ Almacena ubicaciones de contenedores destino:
 ```json
 {
   "contenedores": {
-      "rojo": {"indice": 0, "x_cm": 12.0, "y_cm": 8.0},
-      "azul": {"indice": 1, "x_cm": 28.0, "y_cm": 8.0}
+      "rojo": {"indice": 0, "x_cm": 12.0, "y_cm": 8.0, "z_cm": 0.0},
+      "azul": {"indice": 1, "x_cm": 28.0, "y_cm": 8.0, "z_cm": 0.0}
   }
 }
 ```
