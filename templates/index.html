@@ -232,7 +232,7 @@
 
     .config-grid {
       display: grid;
-      grid-template-columns: repeat(2, minmax(120px, 1fr));
+      grid-template-columns: repeat(3, minmax(120px, 1fr));
       gap: 10px;
     }
 
@@ -385,12 +385,20 @@
               <input type="number" id="contenedorRojoY" step="0.1">
             </div>
             <div class="field">
+              <label for="contenedorRojoZ">Rojo Z (cm)</label>
+              <input type="number" id="contenedorRojoZ" step="0.1">
+            </div>
+            <div class="field">
               <label for="contenedorAzulX">Azul X (cm)</label>
               <input type="number" id="contenedorAzulX" step="0.1">
             </div>
             <div class="field">
               <label for="contenedorAzulY">Azul Y (cm)</label>
               <input type="number" id="contenedorAzulY" step="0.1">
+            </div>
+            <div class="field">
+              <label for="contenedorAzulZ">Azul Z (cm)</label>
+              <input type="number" id="contenedorAzulZ" step="0.1">
             </div>
           </div>
           <div class="actions">
@@ -441,8 +449,10 @@
     const idBottomLeftInput = document.getElementById('idBottomLeft');
     const contenedorRojoXInput = document.getElementById('contenedorRojoX');
     const contenedorRojoYInput = document.getElementById('contenedorRojoY');
+    const contenedorRojoZInput = document.getElementById('contenedorRojoZ');
     const contenedorAzulXInput = document.getElementById('contenedorAzulX');
     const contenedorAzulYInput = document.getElementById('contenedorAzulY');
+    const contenedorAzulZInput = document.getElementById('contenedorAzulZ');
 
     let stream = null;
     let corriendo = false;
@@ -528,8 +538,10 @@
 
       contenedorRojoXInput.value = config.contenedores?.rojo?.x_cm ?? '';
       contenedorRojoYInput.value = config.contenedores?.rojo?.y_cm ?? '';
+      contenedorRojoZInput.value = config.contenedores?.rojo?.z_cm ?? 0;
       contenedorAzulXInput.value = config.contenedores?.azul?.x_cm ?? '';
       contenedorAzulYInput.value = config.contenedores?.azul?.y_cm ?? '';
+      contenedorAzulZInput.value = config.contenedores?.azul?.z_cm ?? 0;
     }
 
     async function cargarConfigCalibracion() {
@@ -593,11 +605,13 @@
             indice: 0,
             x_cm: Number(contenedorRojoXInput.value),
             y_cm: Number(contenedorRojoYInput.value),
+            z_cm: Number(contenedorRojoZInput.value),
           },
           azul: {
             indice: 1,
             x_cm: Number(contenedorAzulXInput.value),
             y_cm: Number(contenedorAzulYInput.value),
+            z_cm: Number(contenedorAzulZInput.value),
           },
         },
       };
