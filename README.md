@@ -24,7 +24,7 @@ robotica/
 ├── templates/
 │   └── index.html                  # Interfaz web del dashboard
 ├── cinematica_inversa_3dof_gripper/
-│   └── cinematica_inversa_3dof_gripper.ino  # Código principal del brazo robótico con IK
+│   └── cinematica_inversa_3dof_gripper.ino  # Código principal del brazo robótico 3DOF con IK, handshake y pick & place
 └── calibracion_servos_3dof/
     └── calibracion_servos_3dof.ino  # Calibrador manual de ángulos de servos
 ```
@@ -46,9 +46,9 @@ pyserial>=3.5,<4.0
 
 La comunicación con Arduino se realiza a través de UART a **115200 baud**, utilizando líneas de texto terminadas en `\n`.
 
-#### Comandos de Prueba (directos al Arduino - no implementados aún desde Python)
+#### Comandos Manuales de Prueba
 
-Estos comandos se envían directamente al Arduino mediante herramientas seriales externas y están en fase de prueba. Serán reemplazados por comunicación serial desde Python en futuras versiones:
+Estos comandos siguen disponibles para pruebas directas sobre el Arduino mediante un monitor serial o una terminal serial:
 
 1. **Comando de movimiento TCP**
    ```
@@ -61,7 +61,7 @@ Estos comandos se envían directamente al Arduino mediante herramientas seriales
    ```
    g <valor>
    ```
-   - `valor`: Ángulo servo pinza (30=cerrada, 80=abierta)
+   - `valor`: Ángulo servo pinza (100=cerrada, 180=abierta)
    - Ejemplos: `go` (abrir), `gc` (cerrar), `g 55` (posición intermedia)
 
 3. **Control de velocidad**
@@ -75,22 +75,25 @@ Estos comandos se envían directamente al Arduino mediante herramientas seriales
 1. **Handshake de Contenedores**
    ```
    CFG,BEGIN
-   CFG,CONT,<color>,<indice>,<x_cm>,<y_cm>
+   CFG,CONT,<color>,<indice>,<x_cm>,<y_cm>,<z_cm>
    CFG,END
    ```
    - Configura ubicaciones de contenedores destino
-   - Se envía cuando Arduino envía "READY" o se actualiza la configuración
+   - Arduino responde con `READY` al iniciar y luego espera esta secuencia antes de aceptar `OBJ`
 
 2. **Envío de Detecciones**
    ```
-   OBJ,<x_cm>,<y_cm>,<contenedor_id>
+   OBJ,<x_cm>,<y_cm>,<z_cm>,<contenedor_id>
    ```
    - `x_cm, y_cm`: Coordenadas del objeto detectado en cm
+   - `z_cm`: altura de aproximación/agarrado en cm
    - `contenedor_id`: Índice del contenedor destino
 
 #### Mensajes desde Arduino → Python
 
 - **READY**: Arduino señala que está listo para recibir comandos de configuración
+- **CFG: listo con N contenedor(es)**: confirma que el handshake terminó correctamente
+- **OBJ: movido a aproximación / objeto / contenedor**: trazas del ciclo de pick & place
 - Otros mensajes se imprimen en la consola para debugging
 
 ### Características de `SerialHandler`
@@ -109,7 +112,7 @@ disconnect()                             # Desconectar
 is_ready() -> bool                       # Estado del handler (conectado y listo)
 enqueue_line(line: str)                  # Encolar línea para enviar
 enqueue_lines(lines: Iterable[str])      # Encolar múltiples líneas
-send_detection(track_id, figura, color, x_cm, y_cm) -> bool  # Enviar detección
+send_detection(track_id, figura, color, x_cm, y_cm, z_cm) -> bool  # Enviar detección con altura
 set_line_callback(callback)              # Registrar callback para líneas entrantes
 get_status() -> dict                     # Obtener estado de conexión y cola
 list_ports() -> List[str]                # Listar puertos seriales disponibles
@@ -118,9 +121,10 @@ list_ports() -> List[str]                # Listar puertos seriales disponibles
 ## TODOs Identificados
 
 ### Arduino (cinematica_inversa_3dof_gripper.ino)
-- **Línea 16**: `TODO: Conectar con programa Python que envíe comandos Serial.`
-  - Estado: El código Python ya está implementado y envía comandos via serial
-  - Acción pendiente: Validar y documentar el protocolo completo en Arduino
+- **Estado**: El sketch ya consume el protocolo `CFG`/`OBJ` desde Python
+   - `CFG` define contenedores con coordenadas en cm
+   - `OBJ` ejecuta pick & place completo con aproximación segura, agarre, traslado y regreso a home
+   - El brazo ya no se mueve directo al punto de agarre: primero sube a una altura de aproximación segura
 
 ## Configuración
 
@@ -136,11 +140,12 @@ Almacena ubicaciones de contenedores destino:
 ```json
 {
   "contenedores": {
-    "rojo": {"indice": 0, "x_cm": 12.0, "y_cm": 8.0},
-    "azul": {"indice": 1, "x_cm": 28.0, "y_cm": 8.0}
+      "rojo": {"indice": 0, "x_cm": 12.0, "y_cm": 8.0},
+      "azul": {"indice": 1, "x_cm": 28.0, "y_cm": 8.0}
   }
 }
 ```
+En tiempo de ejecución, Python toma estas coordenadas y las envía al Arduino dentro del handshake `CFG`.
 
 ## Instalación y Ejecución
 
@@ -171,8 +176,9 @@ La conexión WebSocket permite comunicación bidireccional en tiempo real con el
 
 - El módulo `detector.py` maneja calibración con marcadores ArUco (DICT_4X4_50)
 - Los rangos de color en HSV están predefinidos en `detector.py` (rojo, azul, verde, etc.)
-- La interpolación suave de movimiento ocurre en el microcontrolador Arduino
+- La interpolación suave de movimiento y la lógica de aproximación segura ocurren en el microcontrolador Arduino
 - Thread-safety: Múltiples locks protegen el acceso a variables compartidas
+- El flujo serial actual es: `READY` -> `CFG,BEGIN/CONT/END` -> `OBJ,x,y,z,contenedor` -> ciclo pick & place -> `HOME`
 
 ## Calibración de Servos
 
