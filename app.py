@@ -31,6 +31,10 @@ CONTAINER_CONFIG_FILE = Path(__file__).with_name('container_config.json')
 CONTAINER_CONFIG_LOCK = threading.Lock()
 PENDING_CONTAINER_HANDSHAKE = None
 PENDING_CONTAINER_HANDSHAKE_LOCK = threading.Lock()
+
+# Gripper height configuration (cm) - configurable height for pick & place
+DEFAULT_GRIPPER_HEIGHT_CM = 1.5
+
 _TRACK_LAST_SEEN = {}
 _SENT_TRACKS = set()
 _LAST_PRUNE = time.time()
@@ -272,7 +276,7 @@ def manejar_frame(datos):
                     x = centro.get('x')
                     y = centro.get('y')
                     try:
-                        if serialer.send_detection(indice_contenedor, d.get('figura', ''), color, x, y):
+                        if serialer.send_detection(indice_contenedor, d.get('figura', ''), color, x, y, DEFAULT_GRIPPER_HEIGHT_CM):
                             _SENT_TRACKS.add(track)
                     except Exception:
                         pass

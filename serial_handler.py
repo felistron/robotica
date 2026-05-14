@@ -91,11 +91,11 @@ class SerialHandler:
     def clear_output_queue(self) -> None:
         self._vaciar_cola()
 
-    def send_detection(self, track_id: int, figura: str, color: str, x_cm: float | None, y_cm: float | None) -> bool:
+    def send_detection(self, track_id: int, figura: str, color: str, x_cm: float | None, y_cm: float | None, z_cm: float | None) -> bool:
         if not self.is_ready():
             return False
 
-        # Format CSV: OBJ,x_cm,y_cm,container_index\n
+        # Format CSV: OBJ,x_cm,y_cm,z_cm,container_index\n
         try:
             x = '' if x_cm is None else f"{float(x_cm):.2f}"
         except Exception:
@@ -104,8 +104,12 @@ class SerialHandler:
             y = '' if y_cm is None else f"{float(y_cm):.2f}"
         except Exception:
             y = ''
+        try:
+            z = '' if z_cm is None else f"{float(z_cm):.2f}"
+        except Exception:
+            z = ''
 
-        linea = f"OBJ,{x},{y},{track_id}"
+        linea = f"OBJ,{x},{y},{z},{track_id}"
         self._queue.put(f"{linea}\n".encode('utf-8'))
         return True
 
