@@ -33,7 +33,7 @@ PENDING_CONTAINER_HANDSHAKE = None
 PENDING_CONTAINER_HANDSHAKE_LOCK = threading.Lock()
 
 # Gripper height configuration (cm) - configurable height for pick & place
-DEFAULT_GRIPPER_HEIGHT_CM = 1.5
+DEFAULT_GRIPPER_HEIGHT_CM = 0.0
 
 _TRACK_LAST_SEEN = {}
 _SENT_TRACKS = set()
@@ -275,7 +275,7 @@ def manejar_frame(datos):
                 indice_contenedor = _indice_contenedor_para_color(color) if en_plano else None
                 if indice_contenedor is not None and track not in _SENT_TRACKS:
                     centro = d.get('centroide_cm') or {}
-                    x = centro.get('x')
+                    x = centro.get('x') - 3.0  # ajuste de calibración para alinear con centro del objeto
                     y = centro.get('y')
                     try:
                         if serialer.send_detection(indice_contenedor, d.get('figura', ''), color, x, y, DEFAULT_GRIPPER_HEIGHT_CM):

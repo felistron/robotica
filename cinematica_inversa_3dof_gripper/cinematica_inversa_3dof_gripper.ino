@@ -32,7 +32,7 @@ const int SERVO_MAX[3]  = {180, 180, 180};
 
 // ---- Calibración pinza ----
 const int GRIPPER_OPEN   = 100;
-const int GRIPPER_CLOSED = 180;
+const int GRIPPER_CLOSED = 152;
 
 // ---- Contenedores recibidos por CFG ----
 struct Contenedor {
@@ -49,7 +49,7 @@ bool leyendoCfg     = false;
 // ---- Constantes de timing ----
 const unsigned long MOVE_HOLD   = 1000;  // ms entre movimientos de brazo
 const unsigned long GRIPPER_HOLD = 500;  // ms para cerrar/abrir pinza
-const float SAFE_APPROACH_OFFSET_MM = 50.0f;  // altura extra para evitar choques al acercarse
+const float SAFE_APPROACH_OFFSET_MM = 40.0f;  // altura extra para evitar choques al acercarse
 
 // ---- Geometría (mm) ----
 const float d1 = 100.0f;
@@ -434,8 +434,8 @@ void loop() {
     bool elbowUpUsed = true;
     if (!inverseKinematicsPreferElbowUp(x_mm, y_mm, approach_z_mm, q, elbowUpUsed)) {
       Serial.print(F("OBJ: WARN - punto de aproximación inalcanzable en ("));
-      Serial.print(x_mm, 1); Serial.print(F(",");
-      Serial.print(y_mm, 1); Serial.print(F(",");
+      Serial.print(x_mm, 1); Serial.print(F(","));
+      Serial.print(y_mm, 1); Serial.print(F(","));
       Serial.print(approach_z_mm, 1); Serial.println(F(")"));
       return;
     }
@@ -543,31 +543,6 @@ void loop() {
     Serial.print(container_approach_z_mm / 10.0f, 1); Serial.println(F(")"));
     delay(MOVE_HOLD);
 
-    // 4b. Descend to container and release
-    if (!inverseKinematicsPreferElbowUp(dest_x_mm, dest_y_mm, dest_z_mm, q, elbowUpUsed)) {
-      Serial.print(F("OBJ: WARN - contenedor "));
-      Serial.print(container_id);
-      Serial.println(F(" inalcanzable al descender, retornando a home"));
-      goHome();
-      moveGripperSmooth(GRIPPER_OPEN);
-      delay(GRIPPER_HOLD);
-      flushSerial();
-      return;
-    }
-
-    target[0] = modelToServoCmd(0, q[0]);
-    target[1] = modelToServoCmd(1, q[1]);
-    target[2] = modelToServoCmd(2, q[2]);
-
-    moveArmSmooth(target);
-    Serial.print(F("OBJ: depositado en contenedor "));
-    Serial.print(container_id);
-    Serial.print(F(" en ("));
-    Serial.print(dest_x_mm / 10.0f, 1); Serial.print(F(","));
-    Serial.print(dest_y_mm / 10.0f, 1); Serial.print(F(","));
-    Serial.print(dest_z_mm / 10.0f, 1); Serial.println(F(")"));
-    delay(MOVE_HOLD);
-
     // 5. Open gripper
     moveGripperSmooth(GRIPPER_OPEN);
     delay(GRIPPER_HOLD);
@@ -609,12 +584,12 @@ void loop() {
   moveArmSmooth(target);
 
   Serial.print(F("Manual: xyz(mm)="));
-  Serial.print(xyz[0], 1); Serial.print(F(",");
-  Serial.print(xyz[1], 1); Serial.print(F(",");
+  Serial.print(xyz[0], 1); Serial.print(F(","));
+  Serial.print(xyz[1], 1); Serial.print(F(","));
   Serial.print(xyz[2], 1);
   Serial.print(F(" | q(deg)="));
-  Serial.print(q[0], 2); Serial.print(F(",");
-  Serial.print(q[1], 2); Serial.print(F(",");
+  Serial.print(q[0], 2); Serial.print(F(","));
+  Serial.print(q[1], 2); Serial.print(F(","));
   Serial.print(q[2], 2);
   Serial.print(F(" | "));
   Serial.println(elbowUpUsed ? F("elbowUp") : F("elbowDown"));
