@@ -2,6 +2,15 @@
 
 Sistema de detección de objetos en tiempo real con comunicación serial para control de un brazo robótico de 3 grados de libertad (3DOF) equipado con pinza.
 
+<div style="display: flex; gap: 4rem;">
+   <img src="assets/img_1.jpg" alt="Imagen del robot tomando una figura" width="50%">
+   <img src="assets/img_2.jpg" alt="Imagen demostrando el programa de detección de figuras" width="50%">
+</div>
+
+## Demostración
+
+<video src="assets/video.mp4" width="100%" controls></video>
+
 ## Descripción General
 
 El proyecto integra:
